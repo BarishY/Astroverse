@@ -1,81 +1,58 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ImageBackground, Alert } from 'react-native';
-import { router } from 'expo-router';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ImageBackground } from 'react-native';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../../config/firebase';
+import { useRouter } from 'expo-router';
 
-export default function LoginScreen() {
+export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const router = useRouter();
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Hata', 'Lütfen tüm alanları doldurun.');
-      return;
-    }
-
     try {
-      setLoading(true);
-      await signInWithEmailAndPassword(auth, email, password);
-      // Başarılı giriş sonrası ana sayfaya yönlendir
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      console.log('Giriş başarılı:', userCredential.user);
       router.replace('/');
     } catch (error) {
-      let errorMessage = 'Giriş yapılırken bir hata oluştu.';
-      switch (error.code) {
-        case 'auth/invalid-email':
-          errorMessage = 'Geçersiz e-posta adresi.';
-          break;
-        case 'auth/user-not-found':
-          errorMessage = 'Kullanıcı bulunamadı.';
-          break;
-        case 'auth/wrong-password':
-          errorMessage = 'Hatalı şifre.';
-          break;
-        default:
-          errorMessage = error.message;
-      }
-      Alert.alert('Hata', errorMessage);
-    } finally {
-      setLoading(false);
+      console.error('Giriş hatası:', error);
+      setError('Giriş yapılamadı. Lütfen bilgilerinizi kontrol edin.');
     }
-  };
-
-  const handleRegister = () => {
-    router.push('/register');
   };
 
   return (
     <ImageBackground
-      source={require('assets/images/astroverse_giris.png')}
-      style={styles.background}
+      source={require('../../assets/images/background.png')}
+      style={styles.container}
     >
       <View style={styles.overlay}>
-        <View style={styles.container}>
-          <Text style={styles.title}>Astroverse</Text>
-          <Text style={styles.subtitle}>Uzayın Derinliklerine Yolculuk</Text>
+        <View style={styles.formContainer}>
+          <Text style={styles.title}>Giriş Yap</Text>
           
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
           <TextInput
             style={styles.input}
             placeholder="E-posta"
-            placeholderTextColor="#rgba(255, 255, 255, 0.7)"
+            placeholderTextColor="#999"
             value={email}
             onChangeText={setEmail}
-            keyboardType="email-address"
             autoCapitalize="none"
+            keyboardType="email-address"
           />
-          
+
           <TextInput
             style={styles.input}
             placeholder="Şifre"
-            placeholderTextColor="#rgba(255, 255, 255, 0.7)"
+            placeholderTextColor="#999"
             value={password}
             onChangeText={setPassword}
             secureTextEntry
           />
-          
-          <TouchableOpacity 
-            style={[styles.button, loading && styles.buttonDisabled]}
+
+          <TouchableOpacity
+            style={styles.button}
             onPress={handleLogin}
             disabled={loading}
           >
@@ -83,9 +60,19 @@ export default function LoginScreen() {
               {loading ? 'Giriş Yapılıyor...' : 'Giriş Yap'}
             </Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity onPress={handleRegister}>
-            <Text style={styles.linkText}>Hesabınız yok mu? Kayıt olun</Text>
+
+          <TouchableOpacity
+            style={styles.forgotPasswordButton}
+            onPress={() => router.push('/forgot-password')}
+          >
+            <Text style={styles.forgotPasswordText}>Şifremi Unuttum</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.registerButton}
+            onPress={() => router.push('/register')}
+          >
+            <Text style={styles.registerText}>Hesabınız yok mu? Kayıt Olun</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -94,10 +81,8 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  background: {
+  container: {
     flex: 1,
-    width: '100%',
-    height: '100%',
   },
   overlay: {
     flex: 1,
@@ -105,67 +90,57 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  container: {
+  formContainer: {
     width: '80%',
     padding: 20,
-    alignItems: 'center',
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
   },
   title: {
-    fontSize: 40,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 10,
-    textShadowColor: 'rgba(0, 0, 0, 0.75)',
-    textShadowOffset: { width: -1, height: 1 },
-    textShadowRadius: 10,
-  },
-  subtitle: {
-    fontSize: 18,
-    color: '#fff',
-    marginBottom: 30,
-    textShadowColor: 'rgba(0, 0, 0, 0.75)',
-    textShadowOffset: { width: -1, height: 1 },
-    textShadowRadius: 5,
+    marginBottom: 20,
+    textAlign: 'center',
+    color: '#333',
   },
   input: {
-    width: '100%',
-    height: 50,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 10,
-    paddingHorizontal: 15,
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 5,
     marginBottom: 15,
-    color: '#fff',
-    fontSize: 16,
+    borderWidth: 1,
+    borderColor: '#ddd',
   },
   button: {
-    width: '100%',
-    height: 50,
     backgroundColor: '#6B4EFF',
-    borderRadius: 10,
-    justifyContent: 'center',
+    padding: 15,
+    borderRadius: 5,
     alignItems: 'center',
-    marginTop: 10,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  buttonDisabled: {
-    backgroundColor: '#9B8AFF',
   },
   buttonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
   },
-  linkText: {
-    color: '#fff',
-    marginTop: 20,
+  registerButton: {
+    marginTop: 15,
+    alignItems: 'center',
+  },
+  registerText: {
+    color: '#6B4EFF',
+    fontSize: 14,
+  },
+  errorText: {
+    color: 'red',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  forgotPasswordButton: {
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  forgotPasswordText: {
+    color: '#4a90e2',
     fontSize: 16,
-    textDecorationLine: 'underline',
   },
 }); 
