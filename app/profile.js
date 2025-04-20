@@ -1,18 +1,37 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ImageBackground, ScrollView, TextInput, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ScrollView, ImageBackground, Switch, Modal, Image } from 'react-native';
 import { router } from 'expo-router';
 import { auth } from '../config/firebase';
-import { signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
+import { signOut, reauthenticateWithCredential, EmailAuthProvider, updatePassword } from 'firebase/auth';
 import { Ionicons } from '@expo/vector-icons';
+import { useColorScheme } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export default function ProfileScreen() {
-  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+export default function Profile() {
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [showOldPassword, setShowOldPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [notifications, setNotifications] = useState(true);
+  const [darkMode, setDarkMode] = useState(false);
+  const [user, setUser] = useState(null);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const systemColorScheme = useColorScheme();
+
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (user) {
+        setUser(user);
+      } else {
+        router.replace('/login');
+      }
+      setLoading(false);
+    });
+
+    return unsubscribe;
+  }, []);
 
   const handlePasswordChange = async () => {
     if (!oldPassword || !newPassword || !confirmPassword) {
@@ -31,49 +50,79 @@ export default function ProfileScreen() {
     }
 
     try {
+      setLoading(true);
       const user = auth.currentUser;
-      const credential = EmailAuthProvider.credential(
-        user.email,
-        oldPassword
-      );
-
-      // Önce kullanıcıyı yeniden doğrula
+      const credential = EmailAuthProvider.credential(user.email, oldPassword);
       await reauthenticateWithCredential(user, credential);
-      
-      // Şifreyi güncelle
       await updatePassword(user, newPassword);
       
       Alert.alert('Başarılı', 'Şifreniz başarıyla güncellendi.');
-      setIsChangingPassword(false);
+      setShowPasswordForm(false);
       setOldPassword('');
       setNewPassword('');
       setConfirmPassword('');
     } catch (error) {
-      console.error('Şifre güncellenirken hata oluştu:', error);
-      Alert.alert('Hata', 'Şifre güncellenirken bir hata oluştu. Lütfen eski şifrenizi kontrol edin.');
+      let errorMessage = 'Şifre güncellenirken bir hata oluştu.';
+      if (error.code === 'auth/wrong-password') {
+        errorMessage = 'Mevcut şifre yanlış.';
+      }
+      Alert.alert('Hata', errorMessage);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      router.replace('/(auth)/login');
+      router.replace('/login');
     } catch (error) {
-      console.error('Çıkış yapılırken hata oluştu:', error);
+      Alert.alert('Hata', 'Çıkış yapılırken bir hata oluştu.');
     }
   };
 
+  const toggleDarkMode = () => {
+    setDarkMode(!darkMode);
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.loadingText}>Yükleniyor...</Text>
+      </View>
+    );
+  }
+
   return (
     <ImageBackground
-      source={require('assets/images/astroverse_giris.png')}
+      source={darkMode 
+        ? require('assets/images/karanlık_mod.png')
+        : require('assets/images/astroverse_giris.png')
+      }
       style={styles.background}
     >
-      <View style={styles.overlay}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={30} color="#fff" />
-        </TouchableOpacity>
-
+      <View style={[styles.overlay, darkMode && styles.darkOverlay]}>
         <ScrollView style={styles.scrollView}>
+          <View style={styles.header}>
+            <TouchableOpacity 
+              style={styles.backButton}
+              onPress={() => router.back()}
+            >
+              <Ionicons name="arrow-back" size={24} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.title}>Profil</Text>
+            <TouchableOpacity 
+              style={styles.darkModeButton}
+              onPress={toggleDarkMode}
+            >
+              <Ionicons 
+                name={darkMode ? "moon" : "sunny"} 
+                size={24} 
+                color="#fff" 
+              />
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.container}>
             <View style={styles.profileHeader}>
               <View style={styles.avatarContainer}>
@@ -82,42 +131,33 @@ export default function ProfileScreen() {
               <Text style={styles.email}>{auth.currentUser?.email}</Text>
             </View>
 
+            {/* Hesap Bilgileri Bölümü */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Hesap Bilgileri</Text>
               <TouchableOpacity style={styles.menuItem}>
                 <Ionicons name="person-outline" size={24} color="#fff" style={styles.menuIcon} />
-                <Text style={styles.menuItemText}>Profil Düzenle</Text>
+                <Text style={styles.menuItemText}>Profili Düzenle</Text>
               </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.menuItem} 
-                onPress={() => setIsChangingPassword(!isChangingPassword)}
+                onPress={() => setShowPasswordForm(!showPasswordForm)}
               >
                 <Ionicons name="lock-closed-outline" size={24} color="#fff" style={styles.menuIcon} />
                 <Text style={styles.menuItemText}>Şifre Değiştir</Text>
               </TouchableOpacity>
             </View>
 
-            {isChangingPassword && (
+            {showPasswordForm && (
               <View style={styles.passwordSection}>
                 <View style={styles.inputContainer}>
                   <TextInput
                     style={styles.input}
                     placeholder="Eski Şifre"
                     placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                    secureTextEntry={!showOldPassword}
+                    secureTextEntry
                     value={oldPassword}
                     onChangeText={setOldPassword}
                   />
-                  <TouchableOpacity 
-                    style={styles.eyeIcon}
-                    onPress={() => setShowOldPassword(!showOldPassword)}
-                  >
-                    <Ionicons 
-                      name={showOldPassword ? "eye-off-outline" : "eye-outline"} 
-                      size={24} 
-                      color="#fff" 
-                    />
-                  </TouchableOpacity>
                 </View>
 
                 <View style={styles.inputContainer}>
@@ -125,20 +165,10 @@ export default function ProfileScreen() {
                     style={styles.input}
                     placeholder="Yeni Şifre"
                     placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                    secureTextEntry={!showNewPassword}
+                    secureTextEntry
                     value={newPassword}
                     onChangeText={setNewPassword}
                   />
-                  <TouchableOpacity 
-                    style={styles.eyeIcon}
-                    onPress={() => setShowNewPassword(!showNewPassword)}
-                  >
-                    <Ionicons 
-                      name={showNewPassword ? "eye-off-outline" : "eye-outline"} 
-                      size={24} 
-                      color="#fff" 
-                    />
-                  </TouchableOpacity>
                 </View>
 
                 <View style={styles.inputContainer}>
@@ -146,40 +176,48 @@ export default function ProfileScreen() {
                     style={styles.input}
                     placeholder="Yeni Şifre (Tekrar)"
                     placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                    secureTextEntry={!showConfirmPassword}
+                    secureTextEntry
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
                   />
-                  <TouchableOpacity 
-                    style={styles.eyeIcon}
-                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                  >
-                    <Ionicons 
-                      name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} 
-                      size={24} 
-                      color="#fff" 
-                    />
-                  </TouchableOpacity>
                 </View>
 
-                <TouchableOpacity style={styles.updateButton} onPress={handlePasswordChange}>
-                  <Text style={styles.updateButtonText}>Şifreyi Güncelle</Text>
+                <TouchableOpacity 
+                  style={[styles.updateButton, loading && styles.buttonDisabled]}
+                  onPress={handlePasswordChange}
+                  disabled={loading}
+                >
+                  <Text style={styles.updateButtonText}>
+                    {loading ? 'Güncelleniyor...' : 'Şifreyi Güncelle'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             )}
 
+            {/* Tercihler Bölümü */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Tercihler</Text>
-              <TouchableOpacity style={styles.menuItem}>
+              <View style={styles.menuItem}>
                 <Ionicons name="notifications-outline" size={24} color="#fff" style={styles.menuIcon} />
                 <Text style={styles.menuItemText}>Bildirimler</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.menuItem}>
+                <Switch
+                  value={notifications}
+                  onValueChange={setNotifications}
+                  style={styles.switch}
+                />
+              </View>
+              <View style={styles.menuItem}>
                 <Ionicons name="moon-outline" size={24} color="#fff" style={styles.menuIcon} />
                 <Text style={styles.menuItemText}>Karanlık Mod</Text>
-              </TouchableOpacity>
+                <Switch
+                  value={darkMode}
+                  onValueChange={setDarkMode}
+                  style={styles.switch}
+                />
+              </View>
             </View>
 
+            {/* Çıkış Yap Butonu */}
             <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
               <Ionicons name="log-out-outline" size={24} color="#fff" style={styles.menuIcon} />
               <Text style={styles.logoutButtonText}>Çıkış Yap</Text>
@@ -203,21 +241,30 @@ const styles = StyleSheet.create({
   },
   backButton: {
     position: 'absolute',
-    top: 20,
+    top: 40,
     left: 10,
     zIndex: 100,
     padding: 10,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+    marginTop: 20,
+    marginBottom: 20,
   },
   scrollView: {
     flex: 1,
   },
   container: {
     padding: 20,
-    marginTop: 60,
+    paddingTop: 0,
   },
   profileHeader: {
     alignItems: 'center',
     marginBottom: 30,
+    marginTop: 20,
   },
   avatarContainer: {
     width: 120,
@@ -237,10 +284,11 @@ const styles = StyleSheet.create({
     marginBottom: 30,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 16,
     color: '#fff',
+    fontWeight: '600',
     marginBottom: 15,
+    opacity: 0.8,
   },
   menuItem: {
     flexDirection: 'row',
@@ -254,8 +302,12 @@ const styles = StyleSheet.create({
     marginRight: 15,
   },
   menuItemText: {
+    flex: 1,
     fontSize: 16,
     color: '#fff',
+  },
+  switch: {
+    marginLeft: 'auto',
   },
   passwordSection: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -264,20 +316,14 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 8,
     marginBottom: 10,
   },
   input: {
-    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 8,
     padding: 15,
     color: '#fff',
     fontSize: 16,
-  },
-  eyeIcon: {
-    padding: 15,
   },
   updateButton: {
     backgroundColor: '#6B4EFF',
@@ -303,5 +349,30 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#fff',
     marginLeft: 15,
+  },
+  buttonDisabled: {
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+  },
+  darkOverlay: {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+  },
+  darkModeButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  title: {
+    fontSize: 18,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#fff',
   },
 }); 

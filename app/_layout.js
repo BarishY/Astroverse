@@ -2,53 +2,74 @@ import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { auth } from '../config/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
 import { useRouter, useSegments } from 'expo-router';
+import { useColorScheme } from 'react-native';
+
+// Reanimated'ı en üstte import et
+import 'react-native-reanimated';
 
 export default function Layout() {
   const segments = useSegments();
   const router = useRouter();
+  const colorScheme = useColorScheme();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
       const inAuthGroup = segments[0] === '(auth)';
 
       if (!user && !inAuthGroup) {
-        // Kullanıcı giriş yapmamışsa ve auth grubunda değilse, login sayfasına yönlendir
         router.replace('/(auth)/login');
       } else if (user && inAuthGroup) {
-        // Kullanıcı giriş yapmışsa ve auth grubundaysa, ana sayfaya yönlendir
         router.replace('/');
       }
     });
 
-    return unsubscribe;
+    return () => unsubscribe();
   }, [segments]);
 
   return (
-    <Stack>
-      <Stack.Screen
-        name="index"
-        options={{
-          title: 'Astroverse',
+    <>
+      <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+      <Stack
+        screenOptions={{
           headerShown: false,
+          contentStyle: {
+            backgroundColor: colorScheme === 'dark' ? '#000' : '#fff',
+          },
         }}
-      />
-      <Stack.Screen
-        name="(auth)/login"
-        options={{
-          title: 'Giriş Yap',
-          headerShown: false,
-        }}
-      />
-      <Stack.Screen
-        name="(auth)/register"
-        options={{
-          title: 'Kayıt Ol',
-          headerShown: false,
-        }}
-      />
-    </Stack>
+      >
+        <Stack.Screen
+          name="index"
+          options={{
+            title: 'Astroverse',
+          }}
+        />
+        <Stack.Screen
+          name="(auth)/login"
+          options={{
+            title: 'Giriş Yap',
+          }}
+        />
+        <Stack.Screen
+          name="(auth)/register"
+          options={{
+            title: 'Kayıt Ol',
+          }}
+        />
+        <Stack.Screen
+          name="(auth)/forgot-password"
+          options={{
+            title: 'Şifre Sıfırlama',
+          }}
+        />
+        <Stack.Screen
+          name="profile"
+          options={{
+            title: 'Profil',
+          }}
+        />
+      </Stack>
+    </>
   );
 }
 
