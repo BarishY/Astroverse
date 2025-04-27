@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ScrollView, ImageBackground, Switch, Modal, Image } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ScrollView, ImageBackground, Switch, Modal, Image, RefreshControl, ActivityIndicator, FlatList, Dimensions } from 'react-native';
 import { router } from 'expo-router';
-import { auth } from '../config/firebase';
+import { auth, db } from '../config/firebase';
 import { signOut, reauthenticateWithCredential, EmailAuthProvider, updatePassword } from 'firebase/auth';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
+import { collection, query, where, onSnapshot, deleteDoc, doc } from 'firebase/firestore';
 
 export default function Profile() {
   const [showPasswordForm, setShowPasswordForm] = useState(false);
@@ -19,6 +19,40 @@ export default function Profile() {
   const [user, setUser] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
   const systemColorScheme = useColorScheme();
+  const [favorites, setFavorites] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showFavorites, setShowFavorites] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const flatListRef = useRef(null);
+  const MAX_DOTS = 5; // Sabit nokta sayısı
+
+  const onViewableItemsChanged = useRef(({ viewableItems }) => {
+    if (viewableItems.length > 0) {
+      setActiveIndex(viewableItems[0].index);
+    }
+  }).current;
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 50
+  }).current;
+
+  const getDotIndex = (photoIndex) => {
+    if (favorites.length <= MAX_DOTS) {
+      return photoIndex;
+    }
+    const groupSize = Math.ceil(favorites.length / MAX_DOTS);
+    return Math.floor(photoIndex / groupSize);
+  };
+
+  const scrollToIndex = (dotIndex) => {
+    if (favorites.length <= MAX_DOTS) {
+      flatListRef.current?.scrollToIndex({ index: dotIndex, animated: true });
+    } else {
+      const groupSize = Math.ceil(favorites.length / MAX_DOTS);
+      const targetIndex = dotIndex * groupSize;
+      flatListRef.current?.scrollToIndex({ index: targetIndex, animated: true });
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
@@ -31,6 +65,37 @@ export default function Profile() {
     });
 
     return unsubscribe;
+  }, []);
+
+  const loadFavorites = () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+
+    const q = query(collection(db, 'favorites'), where('user', '==', currentUser.email));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const favs = [];
+      snapshot.forEach(doc => {
+        favs.push({
+          id: doc.id,
+          ...doc.data()
+        });
+      });
+      setFavorites(favs);
+      setLoading(false);
+      setRefreshing(false);
+    });
+
+    return unsubscribe;
+  };
+
+  useEffect(() => {
+    const unsubscribe = loadFavorites();
+    return () => unsubscribe();
+  }, []);
+
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    loadFavorites();
   }, []);
 
   const handlePasswordChange = async () => {
@@ -85,10 +150,41 @@ export default function Profile() {
     setDarkMode(!darkMode);
   };
 
+  const handleRemoveFavorite = async (favoriteId) => {
+    try {
+      await deleteDoc(doc(db, 'favorites', favoriteId));
+    } catch (error) {
+      console.error('Favori silinirken hata:', error);
+    }
+  };
+
+  const renderFavoriteItem = ({ item }) => (
+    <View style={styles.favoriteItem}>
+      <Image
+        source={{ uri: item.photoData.url }}
+        style={styles.favoriteImage}
+        resizeMode="cover"
+      />
+      <View style={styles.favoriteInfo}>
+        <Text style={styles.favoriteTitle}>{item.photoData.title}</Text>
+        <Text style={styles.favoriteDate}>
+          {new Date(item.photoData.date).toLocaleDateString('tr-TR')}
+        </Text>
+        <TouchableOpacity
+          style={styles.removeButton}
+          onPress={() => handleRemoveFavorite(item.id)}
+        >
+          <Ionicons name="trash-outline" size={24} color="#fff" />
+          <Text style={styles.removeButtonText}>Favorilerden Kaldır</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Yükleniyor...</Text>
+        <ActivityIndicator size="large" color="#6B4EFF" />
       </View>
     );
   }
@@ -130,6 +226,65 @@ export default function Profile() {
               </View>
               <Text style={styles.email}>{auth.currentUser?.email}</Text>
             </View>
+
+            {/* Favorilerim Butonu */}
+            <TouchableOpacity 
+              style={styles.favoritesButton}
+              onPress={() => setShowFavorites(!showFavorites)}
+            >
+              <Ionicons name="star" size={24} color="#fff" style={styles.menuIcon} />
+              <Text style={styles.favoritesButtonText}>Favorilerim</Text>
+              <Ionicons 
+                name={showFavorites ? "chevron-up" : "chevron-down"} 
+                size={24} 
+                color="#fff" 
+                style={styles.chevronIcon}
+              />
+            </TouchableOpacity>
+
+            {/* Favoriler Listesi */}
+            {showFavorites && (
+              <View style={styles.favoritesContainer}>
+                {favorites.length === 0 ? (
+                  <View style={styles.emptyContainer}>
+                    <Ionicons name="star-outline" size={48} color="#fff" />
+                    <Text style={styles.emptyText}>Henüz favori fotoğrafınız yok</Text>
+                  </View>
+                ) : (
+                  <>
+                    <FlatList
+                      ref={flatListRef}
+                      data={favorites}
+                      renderItem={renderFavoriteItem}
+                      keyExtractor={item => item.id}
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      pagingEnabled
+                      snapToInterval={Dimensions.get('window').width - 20}
+                      decelerationRate="fast"
+                      contentContainerStyle={styles.favoritesList}
+                      onViewableItemsChanged={onViewableItemsChanged}
+                      viewabilityConfig={viewabilityConfig}
+                    />
+                    <View style={styles.paginationContainer}>
+                      {Array.from({ length: Math.min(MAX_DOTS, favorites.length) }).map((_, index) => (
+                        <TouchableOpacity
+                          key={index}
+                          onPress={() => scrollToIndex(index)}
+                        >
+                          <View
+                            style={[
+                              styles.paginationDot,
+                              getDotIndex(activeIndex) === index && styles.paginationDotActive
+                            ]}
+                          />
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </>
+                )}
+              </View>
+            )}
 
             {/* Hesap Bilgileri Bölümü */}
             <View style={styles.section}>
@@ -371,8 +526,98 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  loadingText: {
+  favoritesButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 10,
+    marginBottom: 15,
+  },
+  favoritesButtonText: {
+    flex: 1,
     fontSize: 16,
     color: '#fff',
+    marginLeft: 15,
+  },
+  chevronIcon: {
+    marginLeft: 'auto',
+  },
+  favoritesContainer: {
+    height: 450,
+    marginBottom: 20,
+  },
+  favoritesList: {
+    paddingHorizontal: 10,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyText: {
+    color: '#fff',
+    fontSize: 16,
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  favoriteItem: {
+    width: Dimensions.get('window').width - 40,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 15,
+    marginHorizontal: 10,
+    overflow: 'hidden',
+  },
+  favoriteImage: {
+    width: '100%',
+    height: 250,
+  },
+  favoriteInfo: {
+    padding: 15,
+  },
+  favoriteTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 5,
+  },
+  favoriteDate: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 14,
+    marginBottom: 10,
+  },
+  removeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 0, 0, 0.3)',
+    padding: 10,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  removeButtonText: {
+    color: '#fff',
+    marginLeft: 5,
+    fontWeight: 'bold',
+  },
+  paginationContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingHorizontal: 10,
+  },
+  paginationDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    marginHorizontal: 8,
+  },
+  paginationDotActive: {
+    backgroundColor: '#6B4EFF',
+    width: 14,
+    height: 14,
+    borderRadius: 7,
   },
 }); 

@@ -2,7 +2,6 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
-// Firebase yapılandırması
 const firebaseConfig = {
   apiKey: "AIzaSyB3tpoNkacojuX6zI-yI2qMryrQ9PbE82o",
   authDomain: "astroverse-9a700.firebaseapp.com",
@@ -13,11 +12,7 @@ const firebaseConfig = {
   measurementId: "G-PV5TKSB230"
 };
 
-// Firebase'i başlat
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
-
-// Auth ve Firestore servislerini al
 export const auth = getAuth(app);
-export const db = getFirestore(app);
-
-export default app; 
+export const db = getFirestore(app); 
