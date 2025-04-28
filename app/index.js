@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { getDoc, doc, setDoc, updateDoc, arrayUnion, onSnapshot, collection, query, where, orderBy, deleteDoc, arrayRemove, serverTimestamp } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { format, subDays } from 'date-fns';
 
 const { width } = Dimensions.get('window');
 const NASA_API_KEY = 'F0y2EDV7Zo3jIKnnzxaN4PYb8FK4Lnp6rhOQ1d5Q';
@@ -18,6 +19,7 @@ export default function HomeScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [apodData, setApodData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const slideAnim = React.useRef(new Animated.Value(-width)).current;
   const [selectedItem, setSelectedItem] = useState(null);
   const [showDetail, setShowDetail] = useState(false);
@@ -34,6 +36,57 @@ export default function HomeScreen() {
   const [editingComment, setEditingComment] = useState(null);
   const [editCommentText, setEditCommentText] = useState('');
   const [favorites, setFavorites] = useState({});
+
+  const fetchApodData = async (date = null) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      let url = `https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}`;
+      
+      if (date) {
+        const formattedDate = format(new Date(date), 'yyyy-MM-dd');
+        url += `&date=${formattedDate}`;
+      } else {
+        const endDate = format(new Date(), 'yyyy-MM-dd');
+        const startDate = format(subDays(new Date(), 30), 'yyyy-MM-dd');
+        url += `&start_date=${startDate}&end_date=${endDate}`;
+      }
+
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.msg || 'API isteği başarısız oldu');
+      }
+
+      // API'den gelen veriyi düzenle
+      const formattedData = Array.isArray(data) ? data : [data];
+      
+      // Sadece resimleri filtrele (video içermeyen)
+      const filteredData = formattedData.filter(item => 
+        item.media_type === 'image' && 
+        !item.url.includes('youtube.com') && 
+        !item.url.includes('vimeo.com')
+      );
+
+      // Tarihe göre sırala (en yeni en üstte)
+      const sortedData = filteredData.sort((a, b) => 
+        new Date(b.date) - new Date(a.date)
+      );
+
+      // En fazla 25 resim göster
+      const limitedData = sortedData.slice(0, 25);
+
+      setApodData(limitedData);
+    } catch (err) {
+      setError(err.message);
+      console.error('API Hatası:', err);
+      Alert.alert('Hata', 'Veriler yüklenirken bir hata oluştu. Lütfen tekrar deneyin.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     const initializeData = async () => {
@@ -86,48 +139,6 @@ export default function HomeScreen() {
     }
   }, [loading]);
 
-  const fetchApodData = async (selectedDate = null) => {
-    try {
-      setLoading(true);
-      let url = `https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}`;
-      
-      if (selectedDate) {
-        const date = new Date(selectedDate);
-        const formattedDate = date.toISOString().split('T')[0];
-        url += `&date=${formattedDate}`;
-      } else {
-        const today = new Date();
-        const startDate = new Date();
-        startDate.setDate(today.getDate() - 30);
-        url += `&start_date=${startDate.toISOString().split('T')[0]}&end_date=${today.toISOString().split('T')[0]}`;
-      }
-
-      const response = await fetch(url);
-      const data = await response.json();
-      
-      const photos = Array.isArray(data) ? data : [data];
-      
-      const filteredData = photos.filter(item => 
-        item.media_type === 'image' && 
-        item.url && 
-        !item.url.includes('youtube.com') && 
-        !item.url.includes('vimeo.com')
-      );
-
-      const sortedData = filteredData.sort((a, b) => 
-        new Date(b.date) - new Date(a.date)
-      );
-      
-      const finalData = sortedData.slice(0, 25);
-      setApodData(finalData);
-    } catch (error) {
-      console.error('APOD verisi alınırken hata oluştu:', error);
-      setApodData([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const toggleMenu = () => {
     const toValue = isMenuOpen ? -width : 0;
     Animated.timing(slideAnim, {
@@ -169,6 +180,11 @@ export default function HomeScreen() {
   const handleItemPress = (item) => {
     setSelectedItem(item);
     setShowDetail(true);
+  };
+
+  const handleDateSelect = (date) => {
+    setSelectedDate(date);
+    fetchApodData(date);
   };
 
   const onRefresh = React.useCallback(() => {

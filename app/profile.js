@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, ScrollView, ImageBackground, Switch, Modal, Image, RefreshControl, ActivityIndicator, FlatList, Dimensions } from 'react-native';
 import { router } from 'expo-router';
 import { auth, db } from '../config/firebase';
-import { signOut, reauthenticateWithCredential, EmailAuthProvider, updatePassword } from 'firebase/auth';
+import { signOut, reauthenticateWithCredential, EmailAuthProvider, updatePassword, sendPasswordResetEmail } from 'firebase/auth';
 import { Ionicons } from '@expo/vector-icons';
 import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -10,6 +10,7 @@ import { collection, query, where, onSnapshot, deleteDoc, doc } from 'firebase/f
 
 export default function Profile() {
   const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [showResetPasswordForm, setShowResetPasswordForm] = useState(false);
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -180,6 +181,27 @@ export default function Profile() {
       </View>
     </View>
   );
+
+  const handleResetPassword = async () => {
+    if (!user?.email) {
+      Alert.alert('Hata', 'E-posta adresi bulunamadı');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await sendPasswordResetEmail(auth, user.email);
+      Alert.alert(
+        'Başarılı',
+        'Şifre sıfırlama bağlantısı e-posta adresinize gönderildi'
+      );
+      setShowResetPasswordForm(false);
+    } catch (error) {
+      Alert.alert('Hata', error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -377,9 +399,49 @@ export default function Profile() {
               <Ionicons name="log-out-outline" size={24} color="#fff" style={styles.menuIcon} />
               <Text style={styles.logoutButtonText}>Çıkış Yap</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.sectionButton}
+              onPress={() => setShowResetPasswordForm(true)}
+            >
+              <Text style={styles.sectionButtonText}>Şifremi Sıfırla</Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </View>
+
+      <Modal
+        visible={showResetPasswordForm}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowResetPasswordForm(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setShowResetPasswordForm(false)}
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+
+            <Text style={styles.modalTitle}>Şifre Sıfırlama</Text>
+            <Text style={styles.modalText}>
+              Şifre sıfırlama bağlantısı e-posta adresinize gönderilecektir.
+            </Text>
+
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={handleResetPassword}
+              disabled={loading}
+            >
+              <Text style={styles.modalButtonText}>
+                {loading ? 'Gönderiliyor...' : 'Şifre Sıfırlama Bağlantısı Gönder'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ImageBackground>
   );
 }
@@ -619,5 +681,61 @@ const styles = StyleSheet.create({
     width: 14,
     height: 14,
     borderRadius: 7,
+  },
+  sectionButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 10,
+    padding: 15,
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  sectionButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '90%',
+    maxWidth: 400,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    borderRadius: 10,
+    padding: 20,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  modalText: {
+    color: '#fff',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  modalButton: {
+    backgroundColor: '#6B4EFF',
+    padding: 15,
+    borderRadius: 8,
+    width: '100%',
+    alignItems: 'center',
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    padding: 5,
   },
 }); 

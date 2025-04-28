@@ -1,12 +1,14 @@
 {
   "compilerOptions": {
     "target": "esnext",
-    "module": "commonjs",
+    "module": "esnext",
     "lib": [
+      "dom",
+      "esnext",
       "es2017"
     ],
     "allowJs": true,
-    "jsx": "react-native",
+    "jsx": "react-jsx",
     "noEmit": true,
     "isolatedModules": true,
     "strict": true,
