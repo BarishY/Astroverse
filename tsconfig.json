@@ -1,14 +1,13 @@
 {
   "compilerOptions": {
     "target": "esnext",
-    "module": "esnext",
+    "module": "commonjs",
     "lib": [
-      "dom",
-      "esnext",
-      "es2017"
+      "es2017",
+      "dom"
     ],
     "allowJs": true,
-    "jsx": "react-jsx",
+    "jsx": "react-native",
     "noEmit": true,
     "isolatedModules": true,
     "strict": true,
@@ -22,7 +21,22 @@
       "@/*": [
         "./*"
       ]
-    }
+    },
+    "types": [
+      "react",
+      "react-native"
+    ],
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "jsx": "react-native"
   },
   "include": [
     "**/*.ts",

@@ -7,7 +7,6 @@ import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { getDoc, doc, setDoc, updateDoc, arrayUnion, onSnapshot, collection, query, where, orderBy, deleteDoc, arrayRemove, serverTimestamp } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { format, subDays } from 'date-fns';
 
 const { width } = Dimensions.get('window');
 const NASA_API_KEY = 'F0y2EDV7Zo3jIKnnzxaN4PYb8FK4Lnp6rhOQ1d5Q';
@@ -19,7 +18,6 @@ export default function HomeScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [apodData, setApodData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const slideAnim = React.useRef(new Animated.Value(-width)).current;
   const [selectedItem, setSelectedItem] = useState(null);
   const [showDetail, setShowDetail] = useState(false);
@@ -36,57 +34,6 @@ export default function HomeScreen() {
   const [editingComment, setEditingComment] = useState(null);
   const [editCommentText, setEditCommentText] = useState('');
   const [favorites, setFavorites] = useState({});
-
-  const fetchApodData = async (date = null) => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      let url = `https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}`;
-      
-      if (date) {
-        const formattedDate = format(new Date(date), 'yyyy-MM-dd');
-        url += `&date=${formattedDate}`;
-      } else {
-        const endDate = format(new Date(), 'yyyy-MM-dd');
-        const startDate = format(subDays(new Date(), 30), 'yyyy-MM-dd');
-        url += `&start_date=${startDate}&end_date=${endDate}`;
-      }
-
-      const response = await fetch(url);
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.msg || 'API isteği başarısız oldu');
-      }
-
-      // API'den gelen veriyi düzenle
-      const formattedData = Array.isArray(data) ? data : [data];
-      
-      // Sadece resimleri filtrele (video içermeyen)
-      const filteredData = formattedData.filter(item => 
-        item.media_type === 'image' && 
-        !item.url.includes('youtube.com') && 
-        !item.url.includes('vimeo.com')
-      );
-
-      // Tarihe göre sırala (en yeni en üstte)
-      const sortedData = filteredData.sort((a, b) => 
-        new Date(b.date) - new Date(a.date)
-      );
-
-      // En fazla 25 resim göster
-      const limitedData = sortedData.slice(0, 25);
-
-      setApodData(limitedData);
-    } catch (err) {
-      setError(err.message);
-      console.error('API Hatası:', err);
-      Alert.alert('Hata', 'Veriler yüklenirken bir hata oluştu. Lütfen tekrar deneyin.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
     const initializeData = async () => {
@@ -139,6 +86,52 @@ export default function HomeScreen() {
     }
   }, [loading]);
 
+  const fetchApodData = async (selectedDate = null) => {
+    try {
+      setLoading(true);
+      let url = `https://api.nasa.gov/planetary/apod?api_key=${NASA_API_KEY}`;
+      
+      if (selectedDate) {
+        const date = new Date(selectedDate);
+        const formattedDate = date.toISOString().split('T')[0];
+        url += `&date=${formattedDate}`;
+      } else {
+        const today = new Date();
+        const startDate = new Date();
+        startDate.setDate(today.getDate() - 30);
+        url += `&start_date=${startDate.toISOString().split('T')[0]}&end_date=${today.toISOString().split('T')[0]}`;
+      }
+
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      let photos = Array.isArray(data) ? data : [data];
+      
+      // Sadece resim içeren ve geçerli URL'ye sahip olanları filtrele
+      photos = photos.filter(item => 
+        item.media_type === 'image' && 
+        item.url && 
+        !item.url.includes('youtube.com') && 
+        !item.url.includes('vimeo.com')
+      );
+
+      // Tarihe göre sırala
+      const sortedData = photos.sort((a, b) => 
+        new Date(b.date) - new Date(a.date)
+      );
+      
+      // Son 25 fotoğrafı al
+      const finalData = sortedData.slice(0, 25);
+      
+      setApodData(finalData);
+    } catch (error) {
+      console.error('APOD verisi alınırken hata oluştu:', error);
+      setApodData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const toggleMenu = () => {
     const toValue = isMenuOpen ? -width : 0;
     Animated.timing(slideAnim, {
@@ -180,11 +173,6 @@ export default function HomeScreen() {
   const handleItemPress = (item) => {
     setSelectedItem(item);
     setShowDetail(true);
-  };
-
-  const handleDateSelect = (date) => {
-    setSelectedDate(date);
-    fetchApodData(date);
   };
 
   const onRefresh = React.useCallback(() => {
@@ -258,26 +246,163 @@ export default function HomeScreen() {
     setCommentText('');
   };
 
-  const onAddComment = async (itemId) => {
-    if (await handleAddComment(itemId, commentText)) {
+  const handleAddComment = async (itemId) => {
+    if (!commentText.trim()) return;
+
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
+
+      const postRef = doc(db, 'apod_posts', itemId);
+      const postDoc = await getDoc(postRef);
+      
+      if (!postDoc.exists()) {
+        await setDoc(postRef, {
+          postId: itemId,
+          createdAt: serverTimestamp(),
+          likes: []
+        });
+      }
+
+      const commentsRef = collection(db, 'apod_posts', itemId, 'comments');
+      const newCommentRef = doc(commentsRef);
+      
+      await setDoc(newCommentRef, {
+        id: newCommentRef.id,
+        text: commentText.trim(),
+        user: currentUser.email,
+        timestamp: serverTimestamp(),
+        postId: itemId
+      });
+
       setCommentText('');
       setShowCommentInput(null);
+    } catch (error) {
+      console.error('Yorum eklenirken hata:', error);
     }
   };
 
-  const onDeleteComment = async (itemId, commentId) => {
-    await handleDeleteComment(itemId, commentId);
+  const onAddComment = async (itemId) => {
+    await handleAddComment(itemId);
   };
 
-  const onEditComment = async (itemId, commentId) => {
-    if (await handleEditComment(itemId, commentId, editCommentText)) {
-      setEditingComment(null);
-      setEditCommentText('');
+  const handleDeleteComment = async (itemId, commentId) => {
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
+      
+      const commentRef = doc(db, 'apod_posts', itemId, 'comments', commentId);
+      const commentDoc = await getDoc(commentRef);
+      
+      if (commentDoc.exists() && commentDoc.data().user === currentUser.email) {
+        await deleteDoc(commentRef);
+      }
+    } catch (error) {
+      console.error('Yorum silinirken hata:', error);
+    }
+  };
+
+  const handleEditComment = async (itemId, commentId) => {
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
+      
+      if (!editCommentText.trim()) return;
+
+      const commentRef = doc(db, 'apod_posts', itemId, 'comments', commentId);
+      const commentDoc = await getDoc(commentRef);
+      
+      if (commentDoc.exists() && commentDoc.data().user === currentUser.email) {
+        await updateDoc(commentRef, {
+          text: editCommentText.trim(),
+          editedAt: serverTimestamp()
+        });
+        setEditingComment(null);
+        setEditCommentText('');
+      }
+    } catch (error) {
+      console.error('Yorum düzenlenirken hata:', error);
+    }
+  };
+
+  const handleToggleFavorite = async (photo) => {
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
+
+      const favRef = doc(db, 'favorites', `${currentUser.email}_${photo.date}`);
+      const favDoc = await getDoc(favRef);
+      
+      if (favDoc.exists()) {
+        await deleteDoc(favRef);
+      } else {
+        await setDoc(favRef, {
+          user: currentUser.email,
+          photoId: photo.date,
+          photoData: photo,
+          createdAt: serverTimestamp()
+        });
+      }
+    } catch (error) {
+      console.error('Favori işlemi sırasında hata:', error);
     }
   };
 
   const onToggleFavorite = async (photo) => {
     await handleToggleFavorite(photo);
+  };
+
+  const onEditComment = async (itemId, commentId) => {
+    try {
+      await handleEditComment(itemId, commentId);
+    } catch (error) {
+      console.error('Yorum düzenlenirken hata:', error);
+    }
+  };
+
+  const onDeleteComment = async (itemId, commentId) => {
+    try {
+      await handleDeleteComment(itemId, commentId);
+    } catch (error) {
+      console.error('Yorum silinirken hata:', error);
+    }
+  };
+
+  const handleLike = async (photoId) => {
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
+
+      const postRef = doc(db, 'apod_posts', photoId);
+      const postDoc = await getDoc(postRef);
+      
+      if (postDoc.exists()) {
+        const postData = postDoc.data();
+        const isLiked = postData.likes?.includes(currentUser.email) || false;
+        
+        if (isLiked) {
+          await updateDoc(postRef, {
+            likes: arrayRemove(currentUser.email)
+          });
+        } else {
+          await updateDoc(postRef, {
+            likes: arrayUnion(currentUser.email)
+          });
+        }
+      } else {
+        await setDoc(postRef, {
+          postId: photoId,
+          likes: [currentUser.email],
+          createdAt: serverTimestamp()
+        });
+      }
+    } catch (error) {
+      console.error('Beğeni işlemi sırasında hata:', error);
+    }
+  };
+
+  const onLike = async (photoId) => {
+    await handleLike(photoId);
   };
 
   const renderLoadingAnimation = () => (
@@ -324,11 +449,16 @@ export default function HomeScreen() {
       style={styles.itemContainer}
       onPress={() => handleItemPress(item)}
     >
-      <Image
-        source={{ uri: item.url }}
-        style={styles.itemImage}
-        resizeMode="cover"
-      />
+      {item.url && (
+        <View style={styles.imageContainer}>
+          <Image
+            source={{ uri: item.url }}
+            style={styles.itemImage}
+            resizeMode="cover"
+            onError={(error) => console.log('Image loading error:', error)}
+          />
+        </View>
+      )}
       <View style={styles.itemInfo}>
         <Text style={styles.itemTitle}>{item.title}</Text>
         <Text style={styles.itemDate}>
@@ -337,7 +467,7 @@ export default function HomeScreen() {
         <View style={styles.interactionButtons}>
           <TouchableOpacity
             style={styles.interactionButton}
-            onPress={() => handleLike(item.date)}
+            onPress={() => onLike(item.date)}
           >
             <Ionicons
               name={likes[item.date]?.includes(auth.currentUser?.email) ? "heart" : "heart-outline"}
@@ -448,7 +578,7 @@ export default function HomeScreen() {
                   {comment.timestamp?.toDate ? 
                     new Date(comment.timestamp.toDate()).toLocaleString('tr-TR') : 
                     ''}
-                  {comment.editedAt && ` (${new Date(comment.editedAt).toLocaleString('tr-TR')} tarihinde düzenlendi)`}
+                  {comment.editedAt && ' (düzenlendi)'}
                 </Text>
               </View>
             ))}
@@ -585,7 +715,7 @@ export default function HomeScreen() {
             ) : (
               <View style={styles.feedContainer}>
                 {apodData && apodData.length > 0 ? (
-                  apodData.map((item, index) => renderItem(item))
+                  apodData.map((item) => renderItem(item))
                 ) : (
                   <View style={styles.noDataContainer}>
                     <Text style={styles.noDataText}>İçerik bulunamadı</Text>
@@ -823,14 +953,25 @@ const styles = StyleSheet.create({
   itemContainer: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 15,
-    marginBottom: 15,
+    marginBottom: 20,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
+    width: '100%',
+  },
+  imageContainer: {
+    width: '100%',
+    height: 300,
+    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+    position: 'relative',
   },
   itemImage: {
     width: '100%',
-    height: 200,
+    height: '100%',
+    resizeMode: 'cover',
+    position: 'absolute',
+    top: 0,
+    left: 0,
   },
   itemInfo: {
     padding: 15,
@@ -896,6 +1037,12 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 8,
     marginBottom: 8,
+  },
+  commentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
   },
   commentUser: {
     color: '#6B4EFF',
@@ -1002,49 +1149,29 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    paddingTop: Platform.OS === 'web' ? 20 : 20,
-    paddingHorizontal: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    padding: 20,
     zIndex: 1000,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   scrollView: {
     flex: 1,
     marginTop: Platform.OS === 'web' ? 80 : 60,
+    paddingHorizontal: Platform.OS === 'web' ? '10%' : 0,
   },
-  sideMenu: {
-    position: Platform.OS === 'web' ? 'fixed' : 'absolute',
-    top: 0,
-    left: 0,
-    bottom: 0,
-    width: Platform.OS === 'web' ? 300 : width * 0.8,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-    zIndex: 99,
+  container: {
     padding: 20,
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-    justifyContent: 'center',
     alignItems: 'center',
-    padding: Platform.OS === 'web' ? 20 : 0,
+    maxWidth: Platform.OS === 'web' ? 1200 : '100%',
+    marginHorizontal: 'auto',
   },
-  modalContent: {
-    width: Platform.OS === 'web' ? '80%' : '95%',
-    height: Platform.OS === 'web' ? '80%' : '90%',
-    backgroundColor: 'rgba(0, 0, 0, 0.95)',
-    borderRadius: 15,
-    padding: 20,
-    position: 'relative',
-  },
-  clearFilterButton: {
-    backgroundColor: '#FF4B4B',
-    marginTop: 10,
-  },
-  commentHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
+  feedContainer: {
+    width: '100%',
+    paddingBottom: 20,
+    maxWidth: Platform.OS === 'web' ? 800 : '100%',
+    marginHorizontal: 'auto',
   },
   commentActions: {
     flexDirection: 'row',
@@ -1083,5 +1210,9 @@ const styles = StyleSheet.create({
   editCommentButtonText: {
     color: '#fff',
     fontWeight: 'bold',
+  },
+  clearFilterButton: {
+    backgroundColor: '#FF4B4B',
+    marginTop: 10,
   },
 }); 
